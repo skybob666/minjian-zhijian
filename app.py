@@ -2,7 +2,7 @@ import streamlit as st
 from core.parser import extract_elements
 from core.rule_check import run_rule_check
 from core.llm_adapter import llm_analyze
-from utils.file_reader import read_docx
+from utils.file_reader import read_document
 import time
 
 st.set_page_config(page_title="民检智鉴", layout="wide")
@@ -23,7 +23,7 @@ cost_llm = 0.0
 # 模式 1：单篇解析（完美修复版）
 # ==============================================
 if mode == "单篇文书解析":
-    uploaded = st.file_uploader("上传裁判文书（.docx）", type="docx")
+    uploaded = st.file_uploader("上传文书（.doc / .docx）", type=["doc", "docx"])
 
     if uploaded:
         try:
