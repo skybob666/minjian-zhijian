@@ -27,7 +27,7 @@ if mode == "单篇文书解析":
 
     if uploaded:
         try:
-            text = read_docx(uploaded)
+            text = read_document(uploaded)
 
             # 1. 计时：要素解析（只调用一次）
             t1_start = time.time()
@@ -132,7 +132,7 @@ elif mode == "批量文书筛查":
         for i, file in enumerate(uploaded_files):
             bar.progress((i+1)/len(uploaded_files), text=f"解析：{file.name}")
             try:
-                text = read_docx(file)
+                text = read_document(file)
                 pages = max(1, len(text)//600)
                 t0 = time.time()
                 info_rule = extract_elements(text)
