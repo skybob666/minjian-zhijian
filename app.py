@@ -19,7 +19,7 @@ cost_llm = 0.0
 # 单篇解析（支持 doc + docx）
 # =======================
 if mode == "单篇文书解析":
-    uploaded = st.file_uploader("上传文书（.doc / .docx）", type=["doc", "docx"])
+    uploaded = st.file_uploader("上传文书（.docx）", type=["docx"])
 
     if uploaded:
         try:
