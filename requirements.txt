@@ -2,5 +2,4 @@ streamlit>=1.32.0
 python-docx>=1.1.0
 requests>=2.31.0
 jieba>=0.42.1
-textract
-python-docx
+mammoth>=1.5.1
