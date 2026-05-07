@@ -1,52 +1,57 @@
 import os
 import tempfile
 import docx
-from zipfile import BadZipFile
+import olefile
 
 def read_document(uploaded_file):
     ext = os.path.splitext(uploaded_file.name)[1].lower()
-    uploaded_file.seek(0)  # 重置文件指针
+    uploaded_file.seek(0)
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         tmp.write(uploaded_file.read())
         tmp_path = tmp.name
 
+    text = ""
     try:
-        # ------------------------
-        # 优先：docx 正常读取
-        # ------------------------
+        # 1. 处理 .docx
         if ext == ".docx":
-            try:
-                doc = docx.Document(tmp_path)
-                text = "\n".join([p.text for p in doc.paragraphs])
-            except BadZipFile:
-                # 如果不是真正的 docx，尝试当作文本读
-                with open(tmp_path, "rb") as f:
-                    text = f.read().decode("utf-8", errors="ignore")
+            doc = docx.Document(tmp_path)
+            text = "\n".join([p.text for p in doc.paragraphs])
 
-        # ------------------------
-        # .doc 旧二进制格式
-        # 云端安全：不使用 mammoth / antiword
-        # ------------------------
+        # 2. 处理 .doc（用 olefile 解析二进制内容）
         elif ext == ".doc":
-            try:
-                # 尝试以二进制读取（兼容绝大多数 .doc）
+            if olefile.isOleFile(tmp_path):
+                ole = olefile.OleFileIO(tmp_path)
+                if ole.exists('WordDocument'):
+                    # 提取文本流（兼容大多数旧版 .doc）
+                    word_stream = ole.openstream('WordDocument')
+                    raw = word_stream.read()
+                    # 尝试常见编码解码
+                    for enc in ["utf-8", "gbk", "gb2312", "cp1252"]:
+                        try:
+                            text = raw.decode(enc)
+                            break
+                        except:
+                            continue
+                ole.close()
+            else:
+                # 兜底：直接读取文件内容
                 with open(tmp_path, "rb") as f:
-                    raw = f.read().decode("utf-8", errors="ignore")
-                text = raw
-            except:
-                # 兜底：GBK 兼容旧中文文档
-                with open(tmp_path, "rb") as f:
-                    raw = f.read().decode("gbk", errors="ignore")
-                text = raw
+                    raw = f.read()
+                    for enc in ["utf-8", "gbk", "gb2312", "cp1252"]:
+                        try:
+                            text = raw.decode(enc)
+                            break
+                        except:
+                            continue
 
         else:
-            raise Exception("仅支持 .doc / .docx 文件")
+            raise ValueError("仅支持 .doc / .docx 格式文件")
 
-        # 简单清洗空白
-        text = text.strip()
-        if len(text) < 20:
-            raise Exception("文档内容过短，可能是图片版PDF或损坏文件")
+        # 清洗文本：去除非打印字符，只保留有效内容
+        text = ''.join([c for c in text if c.isprintable() or c in ['\n', '\t', '\r']])
+        if len(text.strip()) < 20:
+            raise ValueError("文档内容为空或解析失败，请检查文件格式")
 
         return text
 
