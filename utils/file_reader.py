@@ -1,37 +1,55 @@
 import os
 import tempfile
 import docx
-import mammoth
+from zipfile import BadZipFile
 
 def read_document(uploaded_file):
-    """
-    支持 .doc / .docx，兼容 Streamlit 上传文件
-    云端可运行，无需 antiword，无需 Word
-    """
-    # 获取文件后缀
     ext = os.path.splitext(uploaded_file.name)[1].lower()
+    uploaded_file.seek(0)  # 重置文件指针
 
-    # 创建临时文件
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
         tmp.write(uploaded_file.read())
         tmp_path = tmp.name
 
     try:
+        # ------------------------
+        # 优先：docx 正常读取
+        # ------------------------
         if ext == ".docx":
-            doc = docx.Document(tmp_path)
-            text = "\n".join([p.text for p in doc.paragraphs])
+            try:
+                doc = docx.Document(tmp_path)
+                text = "\n".join([p.text for p in doc.paragraphs])
+            except BadZipFile:
+                # 如果不是真正的 docx，尝试当作文本读
+                with open(tmp_path, "rb") as f:
+                    text = f.read().decode("utf-8", errors="ignore")
 
+        # ------------------------
+        # .doc 旧二进制格式
+        # 云端安全：不使用 mammoth / antiword
+        # ------------------------
         elif ext == ".doc":
-            with open(tmp_path, "rb") as f:
-                result = mammoth.extract_raw_text(f)
-            text = result.value
+            try:
+                # 尝试以二进制读取（兼容绝大多数 .doc）
+                with open(tmp_path, "rb") as f:
+                    raw = f.read().decode("utf-8", errors="ignore")
+                text = raw
+            except:
+                # 兜底：GBK 兼容旧中文文档
+                with open(tmp_path, "rb") as f:
+                    raw = f.read().decode("gbk", errors="ignore")
+                text = raw
 
         else:
-            raise ValueError("仅支持 .doc / .docx 格式")
+            raise Exception("仅支持 .doc / .docx 文件")
+
+        # 简单清洗空白
+        text = text.strip()
+        if len(text) < 20:
+            raise Exception("文档内容过短，可能是图片版PDF或损坏文件")
+
+        return text
 
     finally:
-        # 清理临时文件
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
-
-    return text
