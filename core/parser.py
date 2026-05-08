@@ -11,20 +11,25 @@ def clean_text(text):
 def extract_elements(text):
     text = clean_text(text)
 
-    # --------------------------
-    # 1. 案号（修复版，支持换行/乱码）
-    # --------------------------
-    case_no = re.search(r'[(（]\d{4}[）)]\s*[京津沪渝粤浙苏]+\d+民初\d+号', text)
+    # 1. 案号：通用模式，不硬编码省份
+    case_no = re.search(r'[(（]\d{4}[)）][^号]*?[民刑行赔执][终初申再监决]?\d+号', text)
     case_no = case_no.group().replace(" ", "") if case_no else "未提取"
 
-    # --------------------------
-    # 2. 法院 + 案由
-    # --------------------------
-    court = re.search(r'([^，。\s]+人民法院)', text)
-    court = court.group(1) if court else "未提取"
+    # 2. 法院：优先用"审理法院"标签，否则在前800字里匹配"xx人民法院"
+    court_match = re.search(r'审理法院[：:]\s*([\u4e00-\u9fa5]+人民法院)', text)
+    if court_match:
+        court = court_match.group(1)
+    else:
+        court_match = re.search(r'([\u4e00-\u9fa5]{2,}(?:省|市|区|县)人民法院)', text[:800])
+        court = court_match.group(1) if court_match else "未提取"
 
-    case_type = re.search(r'(.*?纠纷)', text)
-    case_type = case_type.group(1) if case_type else "未提取"
+    # 3. 案由：优先用"案由"标签，否则取最后一个"xx纠纷"
+    case_type_match = re.search(r'案由[：:]\s*.*?([\u4e00-\u9fa5]+纠纷)', text)
+    if case_type_match:
+        case_type = case_type_match.group(1)
+    else:
+        all_types = re.findall(r'([\u4e00-\u9fa5]+纠纷)', text)
+        case_type = all_types[-1] if all_types else "未提取"
 
     # --------------------------
     # 3. 当事人（原告、被告）
