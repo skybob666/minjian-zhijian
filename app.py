@@ -2,7 +2,8 @@ import streamlit as st
 from core.parser import extract_elements
 from core.rule_check import run_rule_check
 from core.llm_adapter import llm_analyze
-from utils.file_reader import read_document
+from utils.file_reader import read_docx
+from utils.table_reader import extract_table_from_upload
 import time
 
 st.set_page_config(page_title="民检智鉴", layout="wide")
@@ -15,34 +16,40 @@ cost_rule_elem = 0.0
 cost_rule_check = 0.0
 cost_llm = 0.0
 
-# =======================
-# 单篇解析（支持 doc + docx）
-# =======================
+# 单篇解析
 if mode == "单篇文书解析":
-    uploaded = st.file_uploader("上传文书（.docx）", type=["docx"])
+    uploaded = st.file_uploader("请上传裁判文书（支持 .docx 格式）", type=['docx'])
 
     if uploaded:
         try:
-            # ✅ 这里已经自动支持 doc / docx
-            text = read_document(uploaded)
+            # 1. 先解析表格固定字段
+            table_data = extract_table_from_upload(uploaded)
+            full_text = table_data["全文"]
 
+            # 2. 规则要素解析
             t1_start = time.time()
-            info = extract_elements(text)
+            info = extract_elements(full_text)
             t1_end = time.time()
             cost_rule_elem = round(t1_end - t1_start, 2)
 
+            # 3. 规则违法筛查
             t2_start = time.time()
             with st.spinner("🤖 规则模型正在解析文书..."):
-                rule_clues = run_rule_check(text)
+                rule_clues = run_rule_check(full_text)
             t2_end = time.time()
             cost_rule_check = round(t2_end - t2_start, 2)
 
+            # 4. 大模型解析剩余字段
             t3_start = time.time()
             with st.spinner("🤖 大模型正在深度解析文书..."):
-                llm_result = llm_analyze(text)
+                llm_result = llm_analyze(full_text)
             t3_end = time.time()
             cost_llm = round(t3_end - t3_start, 2)
 
+            # 合并：表格固定字段 + 大模型剩余字段
+            llm_info = {**llm_result, **table_data}
+
+            # 双列展示
             col1, col2 = st.columns(2)
             with col1:
                 st.subheader("📌 文书要素解析（规则引擎）")
@@ -53,13 +60,13 @@ if mode == "单篇文书解析":
                 if "错误" in llm_result:
                     st.error(f"大模型解析失败：{llm_result['错误']}")
                 else:
-                    llm_info = llm_result
                     colA, colB = st.columns(2)
                     with colA:
                         st.markdown(f"**案号**：{llm_info.get('案号', '未提取')}")
                         st.markdown(f"**法院**：{llm_info.get('审理法院', '未提取')}")
                         st.markdown(f"**案由**：{llm_info.get('案由', '未提取')}")
                         st.markdown(f"**程序**：{llm_info.get('审判程序', '未提取')} | 公告送达：{llm_info.get('公告送达', '未提取')}")
+
                     with colB:
                         st.markdown(f"**原告**：{llm_info.get('原告', '未提取')}")
                         st.markdown(f"**被告**：{llm_info.get('被告', '未提取')}")
@@ -69,10 +76,12 @@ if mode == "单篇文书解析":
                     st.markdown("---")
                     st.markdown("⏱ **程序时间轴（大模型识别）**")
                     st.markdown(f"立案：{llm_info.get('立案日期', '未提取')} → 开庭：{llm_info.get('开庭日期', '未提取')} → 判决：{llm_info.get('判决日期', '未提取')}")
+
                     st.markdown("---")
                     st.markdown("📄 **裁判主文（大模型提取）**")
                     st.success(llm_info.get('裁判主文', '未提取'))
 
+            # 违法评估
             st.markdown("---")
             st.subheader("📝 疑似违法情形初步评估报告")
             clue_count = len(rule_clues) if isinstance(rule_clues, list) else 0
@@ -98,20 +107,13 @@ if mode == "单篇文书解析":
         st.markdown("---")
         st.caption(f"⏱ 要素解析耗时：{cost_rule_elem}s | 规则筛查耗时：{cost_rule_check}s | 大模型解析耗时：{cost_llm}s")
 
-# =======================
-# 批量筛查（也支持 doc + docx）
-# =======================
+# 批量文书筛查
 elif mode == "批量文书筛查":
-    # ✅ 这里自动支持 doc + docx 批量上传
-    uploaded_files = st.file_uploader(
-        "批量上传裁判文书（支持 .doc / .docx）",
-        type=["doc", "docx"],
-        accept_multiple_files=True
-    )
+    uploaded_files = st.file_uploader("批量上传裁判文书", type="docx", accept_multiple_files=True)
 
     if "task_list" not in st.session_state:
         st.session_state.task_list = []
-    if "selected_idx" not in st.session_state:
+    if "selected_task_idx" not in st.session_state:
         st.session_state.selected_idx = None
 
     if uploaded_files and st.button("▶ 开始批量解析"):
@@ -120,13 +122,15 @@ elif mode == "批量文书筛查":
         for i, file in enumerate(uploaded_files):
             bar.progress((i+1)/len(uploaded_files), text=f"解析：{file.name}")
             try:
-                # ✅ 自动识别 doc / docx
-                text = read_document(file)
-                pages = max(1, len(text)//600)
+                # 表格提取 + 全文
+                table_data = extract_table_from_upload(file)
+                full_text = table_data["全文"]
+
+                pages = max(1, len(full_text)//600)
                 t0 = time.time()
-                info_rule = extract_elements(text)
-                clues = run_rule_check(text)
-                info_llm = llm_analyze(text)
+                info_rule = extract_elements(full_text)
+                clues = run_rule_check(full_text)
+                info_llm = llm_analyze(full_text)
                 cost = round(time.time()-t0, 2)
                 cnt = len(clues)
 
@@ -137,12 +141,15 @@ elif mode == "批量文书筛查":
                 else:
                     lv = f"🔴 高风险({cnt}项)"
 
+                # 合并表格字段+大模型字段
+                full_info = {**info_llm, **table_data}
+
                 st.session_state.task_list.append({
                     "name": file.name, "pages": pages, "time": cost,
                     "risk_level": lv, "risk_count": cnt,
-                    "info_rule": info_rule, "info_llm": info_llm, "clues": clues
+                    "info_rule": info_rule, "info_llm": full_info, "clues": clues
                 })
-            except Exception as e:
+            except:
                 st.session_state.task_list.append({
                     "name": file.name, "pages":0,"time":0,"risk_level":"❌ 解析失败","risk_count":0,
                     "info_rule":{},"info_llm":{},"clues":[]
