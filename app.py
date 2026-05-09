@@ -7,8 +7,8 @@ from utils.table_reader import extract_table_from_upload
 import time
 
 st.set_page_config(page_title="民检智鉴", layout="wide")
-st.title("⚖️ 智检明察———裁判文书要素化智能筛查与监督与监-督预警平台")
-st.markdown("### 北京市人民检察院|人工智能与检察监督深度融合")
+st.title("⚖️ 智检明察—裁判文书要素化智能筛查与监督与监督预警平台")
+st.markdown("## 北京市人民检察院|人工智能与检察监督深度融合")
 
 mode = st.radio("选择模式", ["单篇文书解析", "批量文书筛查"], horizontal=True)
 
